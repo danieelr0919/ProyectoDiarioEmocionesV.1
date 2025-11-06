@@ -744,25 +744,76 @@ class DiarioEmocionesApp:
         ttk.Radiobutton(frame, text="Excel", variable=formato_var, value="excel").grid(row=3, column=1, sticky="w")
         ttk.Radiobutton(frame, text="PDF", variable=formato_var, value="pdf").grid(row=4, column=1, sticky="w")
         
+        btn_frame = tk.Frame(dialog, bg="#faf3e0")
+        btn_frame.pack(pady=15)
+        
+        
         def aplicar_filtros():
             f_inicio = fecha_inicio.get() if fecha_inicio.get() else None
             f_fin = fecha_fin.get() if fecha_fin.get() else None
             usr_id = usuario_entry.get() if usuario_entry.get() else None
             
-            if formato_var.get() == "excel":
-                self.exportar_entradas_excel(f_inicio, f_fin, usr_id)
-            else:
-                self.exportar_entradas_pdf(f_inicio, f_fin, usr_id)
+            try:
+                if not f_inicio and not f_fin and not usr_id:
+                    if not messagebox.askyesno("Confirmar", "No has seleccionado ningún filtro. ¿Deseas exportar todos los registros?"):
+                        return
+                
+                if formato_var.get() == "excel":
+                    self.exportar_entradas_excel(f_inicio, f_fin, usr_id)
+                else:
+                    self.exportar_entradas_pdf(f_inicio, f_fin, usr_id)
+                
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al exportar: {e}")
+        
+        # Marco para los filtros y previsualización
+        preview_frame = tk.Frame(frame, bg="#f8f0e3")
+        preview_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        
+        # Etiqueta para mostrar resumen de filtros
+        self.preview_label = tk.Label(preview_frame, text="", bg="#f8f0e3", fg="#5a4a42", 
+                                    font=("Arial", 10), wraplength=300)
+        self.preview_label.pack(pady=5)
+        
+        def actualizar_preview(*args):
+            f_inicio = fecha_inicio.get() if fecha_inicio.get() else "Sin fecha inicio"
+            f_fin = fecha_fin.get() if fecha_fin.get() else "Sin fecha fin"
+            usr = usuario_entry.get() if usuario_entry.get() else "Todos los usuarios"
+            fmt = "Excel" if formato_var.get() == "excel" else "PDF"
             
-            dialog.destroy()
+            texto = f"📅 Desde: {f_inicio}\n📅 Hasta: {f_fin}\n👤 Usuario: {usr}\n📄 Formato: {fmt}"
+            self.preview_label.config(text=texto)
+        
+        # Vincular cambios en los campos con la actualización de la previsualización
+        fecha_inicio.bind("<<DateEntrySelected>>", actualizar_preview)
+        fecha_fin.bind("<<DateEntrySelected>>", actualizar_preview)
+        usuario_entry.bind("<KeyRelease>", actualizar_preview)
+        formato_var.trace_add("write", actualizar_preview)
+        
+        # Inicializar la previsualización
+        actualizar_preview()
         
         btn_frame = tk.Frame(dialog, bg="#faf3e0")
         btn_frame.pack(pady=15)
         
-        tk.Button(btn_frame, text="📊 Exportar", bg="#88c9a1", fg="white", 
-                 width=15, command=aplicar_filtros).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="❌ Cancelar", bg="#e77f67", fg="white", 
-                 width=15, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        # Botones más descriptivos
+        tk.Button(btn_frame, 
+                 text="� Exportar Registros",
+                 bg="#4CAF50",
+                 fg="white",
+                 font=("Arial", 10, "bold"),
+                 width=20,
+                 height=2,
+                 command=aplicar_filtros).pack(side=tk.LEFT, padx=5)
+                 
+        tk.Button(btn_frame,
+                 text="❌ Cancelar",
+                 bg="#e77f67",
+                 fg="white",
+                 font=("Arial", 10),
+                 width=15,
+                 command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     # ----------------------------------------
     # MÓDULO 1: USUARIOS
@@ -890,7 +941,14 @@ class DiarioEmocionesApp:
                     print(f"✅ Imagen guardada en: {imagen_guardada}")
             
             cursor = self.conn.cursor()
-            cursor.callproc('sp_crear_usuario', (username, email, f"hash_{password}", imagen_guardada))
+            # Primero creamos el usuario con los datos básicos
+            cursor.callproc('sp_crear_usuario', (username, email, f"hash_{password}"))
+            
+            # Si hay una imagen, actualizamos el registro con la imagen
+            if imagen_guardada:
+                cursor.execute("UPDATE usuarios SET imagen_perfil = %s WHERE username = %s", 
+                             (imagen_guardada, username))
+            
             self.conn.commit()
             messagebox.showinfo("Éxito", f"Usuario {username} guardado exitosamente")
             self.limpiar_usuario()
@@ -1073,7 +1131,18 @@ class DiarioEmocionesApp:
                     print(f"✅ Imagen de emoción guardada en: {imagen_guardada}")
             
             cursor = self.conn.cursor()
-            cursor.callproc('sp_crear_emocion', (nombre, emoji, imagen_guardada))
+            # Primero creamos la emoción con el nombre
+            cursor.callproc('sp_crear_emocion', (nombre,))
+            
+            # Obtenemos el ID de la emoción recién creada
+            cursor.execute("SELECT LAST_INSERT_ID()")
+            emocion_id = cursor.fetchone()[0]
+            
+            # Actualizamos el emoji y la imagen si existen
+            if emoji or imagen_guardada:
+                cursor.execute("UPDATE emociones SET emoji = %s, imagen = %s WHERE id = %s", 
+                             (emoji, imagen_guardada, emocion_id))
+            
             self.conn.commit()
             messagebox.showinfo("Éxito", f"Emoción {nombre} guardada exitosamente")
             self.limpiar_emocion()
